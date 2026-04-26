@@ -1,6 +1,7 @@
 from django.db import models
 from django.contrib.auth.models import AbstractUser, BaseUserManager
 from django.utils.translation import gettext_lazy as _
+from lms.models import Course, Lesson
 
 
 class UserManager(BaseUserManager):
@@ -29,7 +30,7 @@ class UserManager(BaseUserManager):
 
 
 class User(AbstractUser):
-    username = None  # убираем поле username
+    username = None
     email = models.EmailField(_('email address'), unique=True)
     phone = models.CharField(max_length=35, blank=True, null=True)
     city = models.CharField(max_length=100, blank=True, null=True)
@@ -46,3 +47,27 @@ class User(AbstractUser):
     class Meta:
         verbose_name = 'Пользователь'
         verbose_name_plural = 'Пользователи'
+
+
+class Payment(models.Model):
+    PAYMENT_METHODS = [
+        ('cash', 'Наличные'),
+        ('transfer', 'Перевод на счет'),
+    ]
+
+    user = models.ForeignKey(User, on_delete=models.CASCADE, related_name='payments', verbose_name='пользователь')
+    payment_date = models.DateTimeField(auto_now_add=True, verbose_name='дата оплаты')
+    course = models.ForeignKey(Course, on_delete=models.CASCADE, null=True, blank=True, related_name='payments',
+                               verbose_name='оплаченный курс')
+    lesson = models.ForeignKey(Lesson, on_delete=models.CASCADE, null=True, blank=True, related_name='payments',
+                               verbose_name='оплаченный урок')
+    amount = models.DecimalField(max_digits=10, decimal_places=2, verbose_name='сумма оплаты')
+    payment_method = models.CharField(max_length=20, choices=PAYMENT_METHODS, verbose_name='способ оплаты')
+
+    def __str__(self):
+        return f"{self.user.email} - {self.amount} - {self.payment_date}"
+
+    class Meta:
+        verbose_name = 'Платеж'
+        verbose_name_plural = 'Платежи'
+        ordering = ['-payment_date']
