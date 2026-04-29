@@ -4,14 +4,20 @@ from django.conf import settings
 from django.conf.urls.static import static
 from django.http import JsonResponse
 from rest_framework.routers import DefaultRouter
+from rest_framework_simplejwt.views import TokenObtainPairView, TokenRefreshView
 from lms.views import CourseViewSet, LessonListCreateView, LessonRetrieveUpdateDestroyView
-from users.views import UserProfileViewSet, PaymentListView
+from users.views import UserProfileViewSet, PaymentListView, UserRegistrationView
 
 
 def api_root(request):
     return JsonResponse({
         "message": "LMS API Server",
         "available_endpoints": {
+            "auth": {
+                "register": "/api/register/",
+                "login": "/api/token/",
+                "refresh": "/api/token/refresh/",
+            },
             "admin_panel": "/admin/",
             "courses_list": "/api/courses/",
             "courses_detail": "/api/courses/{id}/",
@@ -38,6 +44,9 @@ urlpatterns = [
     path('', api_root),
     path('admin/', admin.site.urls),
     path('api/', include(router.urls)),
+    path('api/register/', UserRegistrationView.as_view(), name='user-registration'),
+    path('api/token/', TokenObtainPairView.as_view(), name='token_obtain_pair'),
+    path('api/token/refresh/', TokenRefreshView.as_view(), name='token_refresh'),
     path('api/lessons/', LessonListCreateView.as_view(), name='lesson-list-create'),
     path('api/lessons/<int:pk>/', LessonRetrieveUpdateDestroyView.as_view(), name='lesson-detail'),
     path('api/payments/', PaymentListView.as_view(), name='payment-list'),
