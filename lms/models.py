@@ -32,3 +32,19 @@ class Lesson(models.Model):
     class Meta:
         verbose_name = 'Урок'
         verbose_name_plural = 'Уроки'
+
+
+class Subscription(models.Model):
+    user = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE,
+                             related_name='subscriptions', verbose_name='пользователь')
+    course = models.ForeignKey('Course', on_delete=models.CASCADE,
+                               related_name='subscriptions', verbose_name='курс')
+    created_at = models.DateTimeField(auto_now_add=True, verbose_name='дата подписки')
+
+    class Meta:
+        verbose_name = 'Подписка'
+        verbose_name_plural = 'Подписки'
+        unique_together = ['user', 'course']  # Гарантируем уникальность пары
+
+    def __str__(self):
+        return f"{self.user.email} -> {self.course.title}"
