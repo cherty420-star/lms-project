@@ -1,6 +1,7 @@
 from rest_framework import serializers
 from .models import User, Payment
 from lms.models import Course, Lesson
+from django.db import models as django_models
 
 
 class UserRegistrationSerializer(serializers.ModelSerializer):
@@ -58,6 +59,7 @@ class UserProfileWithPaymentsSerializer(serializers.ModelSerializer):
         fields = ['id', 'email', 'first_name', 'phone', 'city', 'avatar', 'payments', 'total_payments']
 
     def get_total_payments(self, obj):
+        from django.db import models
         return obj.payments.aggregate(total=models.Sum('amount'))['total'] or 0
 
 
@@ -69,4 +71,33 @@ class PaymentSerializer(serializers.ModelSerializer):
     class Meta:
         model = Payment
         fields = ['id', 'user', 'user_email', 'payment_date', 'course', 'course_title',
-                  'lesson', 'lesson_title', 'amount', 'payment_method']
+                  'lesson', 'lesson_title', 'amount', 'payment_method', 'status', 'payment_url']
+
+
+class PaymentCreateSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = Payment
+        fields = ['id', 'user', 'course', 'amount', 'payment_method']
+        read_only_fields = ['user']
+
+    def validate(self, data):
+        if not data.get('course'):
+            raise serializers.ValidationError("Необходимо указать курс для оплаты")
+        if data.get('course') and data.get('lesson'):
+            raise serializers.ValidationError("Нельзя указать одновременно курс и урок")
+        if data.get('amount') and float(data['amount']) <= 0:
+            raise serializers.ValidationError("Сумма должна быть больше 0")
+        return data
+
+
+class PaymentRetrieveSerializer(serializers.ModelSerializer):
+    user_email = serializers.CharField(source='user.email', read_only=True)
+    course_title = serializers.CharField(source='course.title', read_only=True, default='')
+    lesson_title = serializers.CharField(source='lesson.title', read_only=True, default='')
+
+    class Meta:
+        model = Payment
+        fields = ['id', 'user', 'user_email', 'payment_date', 'course', 'course_title',
+                  'lesson', 'lesson_title', 'amount', 'payment_method', 'status',
+                  'payment_url', 'stripe_payment_intent_id', 'stripe_checkout_session_id',
+                  'stripe_product_id', 'stripe_price_id']

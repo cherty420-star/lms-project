@@ -4,3 +4,6 @@ Pillow==12.2.0
 coverage==7.13.5
 django-filter==25.2
 djangorestframework-simplejwt==5.5.1
+drf-yasg==1.21.15
+stripe==15.1.0
+python-dotenv==1.2.2

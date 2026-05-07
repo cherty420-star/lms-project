@@ -1,6 +1,13 @@
 import os
 from pathlib import Path
 from datetime import timedelta
+from dotenv import load_dotenv
+import os
+
+load_dotenv()
+
+STRIPE_PUBLIC_KEY = os.getenv('STRIPE_PUBLIC_KEY')
+STRIPE_SECRET_KEY = os.getenv('STRIPE_SECRET_KEY')
 
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
 BASE_DIR = Path(__file__).resolve().parent.parent
@@ -22,11 +29,15 @@ INSTALLED_APPS = [
     'django.contrib.messages',
     'django.contrib.staticfiles',
     'rest_framework',
-    'rest_framework_simplejwt',  # Добавлено для JWT
+    'rest_framework_simplejwt',
     'django_filters',
+    'drf_yasg',  # Добавлено для документации
     'users',
     'lms',
 ]
+
+STRIPE_PUBLIC_KEY = '1234567890'
+STRIPE_SECRET_KEY = '0987654321'
 
 MIDDLEWARE = [
     'django.middleware.security.SecurityMiddleware',
