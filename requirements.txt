@@ -7,3 +7,5 @@ djangorestframework-simplejwt==5.5.1
 drf-yasg==1.21.15
 stripe==15.1.0
 python-dotenv==1.2.2
+celery==5.6.3
+redis==7.4.0

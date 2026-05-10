@@ -1,5 +1,6 @@
 from django.db import models
 from django.conf import settings
+from django.utils import timezone
 
 
 class Course(models.Model):
@@ -8,6 +9,7 @@ class Course(models.Model):
     description = models.TextField(verbose_name='описание')
     owner = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE,
                              null=True, blank=True, related_name='courses', verbose_name='владелец')
+    updated_at = models.DateTimeField(auto_now=True, verbose_name='дата обновления')
 
     def __str__(self):
         return self.title
@@ -25,6 +27,7 @@ class Lesson(models.Model):
     course = models.ForeignKey(Course, on_delete=models.CASCADE, related_name='lessons', verbose_name='курс')
     owner = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE,
                              null=True, blank=True, related_name='lessons', verbose_name='владелец')
+    updated_at = models.DateTimeField(auto_now=True, verbose_name='дата обновления')  # Добавьте
 
     def __str__(self):
         return self.title

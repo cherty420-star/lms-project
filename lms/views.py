@@ -3,7 +3,7 @@ from rest_framework.decorators import action
 from rest_framework.response import Response
 from django.shortcuts import get_object_or_404
 from .models import Course, Lesson, Subscription
-from .serializers import CourseSerializer, LessonSerializer, SubscriptionSerializer
+from .serializers import CourseSerializer, LessonSerializer
 from .paginators import CoursePaginator, LessonPaginator
 from users.permissions import IsModerator, IsOwner
 
@@ -28,13 +28,10 @@ class CourseViewSet(viewsets.ModelViewSet):
 
     def get_permissions(self):
         if self.action == 'create':
-            # Создание только для обычных пользователей (не модераторов)
             self.permission_classes = [permissions.IsAuthenticated, IsNotModerator]
         elif self.action == 'destroy':
-            # Удаление только для владельцев
             self.permission_classes = [permissions.IsAuthenticated, IsOwner]
         elif self.action in ['update', 'partial_update']:
-            # Обновление для всех аутентифицированных (проверка в has_object_permission)
             self.permission_classes = [permissions.IsAuthenticated]
         elif self.action == 'subscribe':
             self.permission_classes = [permissions.IsAuthenticated]
@@ -48,8 +45,8 @@ class CourseViewSet(viewsets.ModelViewSet):
     def get_queryset(self):
         user = self.request.user
         if IsModerator().has_permission(self.request, self):
-            return Course.objects.all()
-        return Course.objects.filter(owner=user)
+            return Course.objects.all().order_by('id')
+        return Course.objects.filter(owner=user).order_by('id')
 
     @action(detail=True, methods=['post', 'delete'])
     def subscribe(self, request, pk=None):
@@ -92,15 +89,14 @@ class LessonListCreateView(generics.ListCreateAPIView):
 
     def get_permissions(self):
         if self.request.method == 'POST':
-            # Создание только для обычных пользователей (не модераторов)
             return [permissions.IsAuthenticated(), IsNotModerator()]
         return [permissions.IsAuthenticated()]
 
     def get_queryset(self):
         user = self.request.user
         if IsModerator().has_permission(self.request, self):
-            return Lesson.objects.all()
-        return Lesson.objects.filter(owner=user)
+            return Lesson.objects.all().order_by('id')
+        return Lesson.objects.filter(owner=user).order_by('id')
 
     def perform_create(self, serializer):
         serializer.save(owner=self.request.user)
@@ -115,12 +111,11 @@ class LessonRetrieveUpdateDestroyView(generics.RetrieveUpdateDestroyAPIView):
         if self.request.method == 'DELETE':
             return [permissions.IsAuthenticated(), IsOwner()]
         elif self.request.method in ['PUT', 'PATCH']:
-            # Модераторы могут редактировать любые уроки
             return [permissions.IsAuthenticated()]
         return [permissions.IsAuthenticated()]
 
     def get_queryset(self):
         user = self.request.user
         if IsModerator().has_permission(self.request, self):
-            return Lesson.objects.all()
-        return Lesson.objects.filter(owner=user)
+            return Lesson.objects.all().order_by('id')
+        return Lesson.objects.filter(owner=user).order_by('id')

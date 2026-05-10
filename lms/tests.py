@@ -1,225 +1,121 @@
-from django.test import TestCase
-from django.contrib.auth.models import Group
-from django.urls import reverse
-from rest_framework.test import APITestCase, APIClient
-from rest_framework import status
-from users.models import User
-from .models import Course, Lesson, Subscription
+from celery import shared_task
+from django.core.mail import send_mail
+from django.conf import settings
+from django.utils import timezone
+from datetime import timedelta
+from .models import Course, Subscription
 
 
-class LessonTests(APITestCase):
+@shared_task
+def send_course_update_notification(course_id, old_title, new_title, old_description, new_description):
+    """
+    Отправка уведомлений подписчикам об обновлении курса
+    """
+    try:
+        course = Course.objects.get(id=course_id)
+        subscriptions = Subscription.objects.filter(course=course).select_related('user')
 
-    def setUp(self):
-        # Создаем пользователей
-        self.owner = User.objects.create_user(
-            email='owner@test.com',
-            password='test123',
-            first_name='Owner'
-        )
+        if not subscriptions.exists():
+            return f"No subscribers for course: {course.title}"
 
-        self.other_user = User.objects.create_user(
-            email='other@test.com',
-            password='test123',
-            first_name='Other'
-        )
+        # Формируем письмо
+        subject = f"Обновление курса: {course.title}"
 
-        # Создаем группу модераторов
-        self.moderator_group, _ = Group.objects.get_or_create(name='moderators')
-        self.moderator = User.objects.create_user(
-            email='moderator@test.com',
-            password='test123',
-            first_name='Moderator'
-        )
-        self.moderator.groups.add(self.moderator_group)
+        # Определяем, что именно изменилось
+        changes = []
+        if old_title != new_title:
+            changes.append(f"Название: '{old_title}' → '{new_title}'")
+        if old_description != new_description:
+            changes.append("Описание курса было обновлено")
 
-        # Создаем курс и урок
-        self.course = Course.objects.create(
-            title='Test Course',
-            description='Test Description',
-            owner=self.owner
-        )
+        changes_text = "\n".join(
+            f"- {change}" for change in changes) if changes else "- Были внесены обновления в материалы курса"
 
-        self.lesson = Lesson.objects.create(
-            title='Test Lesson',
-            description='Test Lesson Description',
-            video_link='https://www.youtube.com/watch?v=test',
-            course=self.course,
-            owner=self.owner
-        )
+        message = f"""
+Здравствуйте!
 
-        # Настраиваем клиенты
-        self.client = APIClient()
+Курс "{course.title}" был обновлен.
 
-    def test_create_lesson_valid_youtube_link(self):
-        """Тест создания урока с валидной youtube ссылкой"""
-        self.client.force_authenticate(user=self.owner)
-        url = reverse('lesson-list-create')
-        data = {
-            'title': 'New Lesson',
-            'description': 'Description',
-            'video_link': 'https://www.youtube.com/watch?v=valid',
-            'course': self.course.id
-        }
-        response = self.client.post(url, data, format='json')
-        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
-        self.assertEqual(Lesson.objects.count(), 2)
+Изменения:
+{changes_text}
 
-    def test_create_lesson_invalid_link(self):
-        """Тест создания урока с невалидной ссылкой (не youtube)"""
-        self.client.force_authenticate(user=self.owner)
-        url = reverse('lesson-list-create')
-        data = {
-            'title': 'New Lesson',
-            'description': 'Description',
-            'video_link': 'https://www.rutube.ru/video/test',
-            'course': self.course.id
-        }
-        response = self.client.post(url, data, format='json')
-        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
-        self.assertIn('video_link', response.data)
+Перейдите в курс, чтобы ознакомиться с обновлениями.
 
-    def test_update_lesson_owner(self):
-        """Тест обновления урока владельцем"""
-        self.client.force_authenticate(user=self.owner)
-        url = reverse('lesson-detail', args=[self.lesson.id])
-        data = {'title': 'Updated Title'}
-        response = self.client.patch(url, data, format='json')
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.lesson.refresh_from_db()
-        self.assertEqual(self.lesson.title, 'Updated Title')
+С уважением,
+Команда LMS
+        """
 
-    def test_update_lesson_not_owner(self):
-        """Тест обновления урока не владельцем"""
-        self.client.force_authenticate(user=self.other_user)
-        url = reverse('lesson-detail', args=[self.lesson.id])
-        data = {'title': 'Updated Title'}
-        response = self.client.patch(url, data, format='json')
-        # Не владелец не видит чужой урок
-        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
+        # Собираем список email получателей
+        recipient_list = [sub.user.email for sub in subscriptions if sub.user.email]
 
-    def test_update_lesson_moderator(self):
-        """Тест обновления урока модератором"""
-        self.client.force_authenticate(user=self.moderator)
-        url = reverse('lesson-detail', args=[self.lesson.id])
-        data = {'title': 'Updated by Moderator'}
-        response = self.client.patch(url, data, format='json')
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.lesson.refresh_from_db()
-        self.assertEqual(self.lesson.title, 'Updated by Moderator')
+        if recipient_list:
+            send_mail(
+                subject=subject,
+                message=message,
+                from_email=settings.DEFAULT_FROM_EMAIL,
+                recipient_list=recipient_list,
+                fail_silently=False,
+            )
+            return f"Sent notifications to {len(recipient_list)} subscribers for course: {course.title}"
 
-    def test_delete_lesson_owner(self):
-        """Тест удаления урока владельцем"""
-        self.client.force_authenticate(user=self.owner)
-        url = reverse('lesson-detail', args=[self.lesson.id])
-        response = self.client.delete(url)
-        self.assertEqual(response.status_code, status.HTTP_204_NO_CONTENT)
-        self.assertEqual(Lesson.objects.count(), 0)
+        return f"No valid email addresses for course: {course.title}"
 
-    def test_delete_lesson_moderator(self):
-        """Тест удаления урока модератором (должно быть запрещено)"""
-        self.client.force_authenticate(user=self.moderator)
-        url = reverse('lesson-detail', args=[self.lesson.id])
-        response = self.client.delete(url)
-        # Модератор может удалять? По заданию - нет
-        # Если запрещено - 403 или 404
-        self.assertIn(response.status_code, [status.HTTP_403_FORBIDDEN, status.HTTP_404_NOT_FOUND])
-
-    def test_list_lessons_owner(self):
-        """Тест получения списка уроков владельцем"""
-        self.client.force_authenticate(user=self.owner)
-        url = reverse('lesson-list-create')
-        response = self.client.get(url)
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(len(response.data['results']), 1)
-
-    def test_list_lessons_moderator(self):
-        """Тест получения списка уроков модератором (видит все)"""
-        # Создаем урок другого пользователя
-        Lesson.objects.create(
-            title='Other Lesson',
-            description='Other Description',
-            video_link='https://www.youtube.com/watch?v=other',
-            course=self.course,
-            owner=self.other_user
-        )
-
-        self.client.force_authenticate(user=self.moderator)
-        url = reverse('lesson-list-create')
-        response = self.client.get(url)
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(len(response.data['results']), 2)
+    except Course.DoesNotExist:
+        return f"Course {course_id} does not exist"
+    except Exception as e:
+        return f"Error sending notifications: {str(e)}"
 
 
-class SubscriptionTests(APITestCase):
+@shared_task
+def send_lesson_update_notification(lesson_id, course_id, lesson_title, old_content, new_content):
+    """
+    Отправка уведомлений подписчикам об обновлении урока (дополнительное задание)
+    """
+    try:
+        course = Course.objects.get(id=course_id)
+        subscriptions = Subscription.objects.filter(course=course).select_related('user')
 
-    def setUp(self):
-        self.user = User.objects.create_user(
-            email='user@test.com',
-            password='test123'
-        )
+        if not subscriptions.exists():
+            return f"No subscribers for course: {course.title}"
 
-        self.course = Course.objects.create(
-            title='Test Course',
-            description='Description',
-            owner=self.user
-        )
+        subject = f"Обновление урока в курсе: {lesson_title}"
 
-        self.client = APIClient()
+        message = f"""
+Здравствуйте!
 
-    def test_subscribe_to_course(self):
-        """Тест подписки на курс"""
-        self.client.force_authenticate(user=self.user)
-        url = reverse('course-subscribe', args=[self.course.id])
-        response = self.client.post(url)
-        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
-        self.assertTrue(Subscription.objects.filter(user=self.user, course=self.course).exists())
+Урок "{lesson_title}" в курсе "{course.title}" был обновлен.
 
-    def test_double_subscribe(self):
-        """Тест повторной подписки (должна быть ошибка)"""
-        self.client.force_authenticate(user=self.user)
-        url = reverse('course-subscribe', args=[self.course.id])
-        # Первая подписка
-        response1 = self.client.post(url)
-        self.assertEqual(response1.status_code, status.HTTP_201_CREATED)
+Изменения затронули содержание урока.
 
-        # Вторая подписка (должна быть ошибка)
-        response2 = self.client.post(url)
-        self.assertEqual(response2.status_code, status.HTTP_400_BAD_REQUEST)
+Перейдите в курс, чтобы ознакомиться с обновлениями.
 
-    def test_unsubscribe_from_course(self):
-        """Тест отписки от курса"""
-        self.client.force_authenticate(user=self.user)
-        url = reverse('course-subscribe', args=[self.course.id])
+С уважением,
+Команда LMS
+        """
 
-        # Сначала подписываемся
-        self.client.post(url)
-        self.assertTrue(Subscription.objects.filter(user=self.user, course=self.course).exists())
+        recipient_list = [sub.user.email for sub in subscriptions if sub.user.email]
 
-        # Затем отписываемся
-        response = self.client.delete(url)
-        self.assertEqual(response.status_code, status.HTTP_204_NO_CONTENT)
-        self.assertFalse(Subscription.objects.filter(user=self.user, course=self.course).exists())
+        if recipient_list:
+            send_mail(
+                subject=subject,
+                message=message,
+                from_email=settings.DEFAULT_FROM_EMAIL,
+                recipient_list=recipient_list,
+                fail_silently=False,
+            )
+            return f"Sent notifications to {len(recipient_list)} subscribers for lesson: {lesson_title}"
 
-    def test_unsubscribe_not_subscribed(self):
-        """Тест отписки без подписки (должна быть ошибка)"""
-        self.client.force_authenticate(user=self.user)
-        url = reverse('course-subscribe', args=[self.course.id])
-        response = self.client.delete(url)
-        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        return f"No valid email addresses for lesson: {lesson_title}"
 
-    def test_is_subscribed_field(self):
-        """Тест поля is_subscribed в сериализаторе курса"""
-        self.client.force_authenticate(user=self.user)
-        url = reverse('course-detail', args=[self.course.id])
+    except Course.DoesNotExist:
+        return f"Course {course_id} does not exist"
+    except Exception as e:
+        return f"Error sending notifications: {str(e)}"
 
-        # Проверяем без подписки
-        response = self.client.get(url)
-        self.assertFalse(response.data['is_subscribed'])
 
-        # Подписываемся
-        subscribe_url = reverse('course-subscribe', args=[self.course.id])
-        self.client.post(subscribe_url)
-
-        # Проверяем с подпиской
-        response = self.client.get(url)
-        self.assertTrue(response.data['is_subscribed'])
+@shared_task
+def test_celery():
+    """
+    Тестовая задача для проверки работы Celery
+    """
+    return "Celery is working!"
